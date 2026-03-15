@@ -13,6 +13,13 @@ const MAX_PLAYERS = 10;
 const DEFAULT_ENTRY_FEE = 10;
 const DEFAULT_STARTING_MONEY = 500;
 
+// ── Skills Configuration ────────────────────────────────────
+const SKILL_CONFIG = {
+  obscure: { levels: [1, 2, 3], costs: [50, 100, 150], chances: [0.05, 0.075, 0.10], name: '門牌遮蔽', desc: '在對手回合時，有機率隱藏其第二張門牌' },
+  replace: { levels: [1, 2, 3], costs: [100, 150, 200], chances: [0.05, 0.075, 0.10], name: '門牌替換', desc: '在所有回合時，有機率替換第二張門牌' },
+  steal:   { levels: [1, 2, 3], costs: [100, 150, 200], chances: [0.05, 0.075, 0.10], name: '偷錢', desc: '在對手贏得獎池時，有機率偷取其 30% 獲利' }
+};
+
 // ── Deck ────────────────────────────────────────────────────
 class Deck {
   constructor() {
@@ -84,7 +91,9 @@ class Room {
       money: this.startingMoney,
       eliminated: false,
       connected: true,
-      waitingForNextRound: this.gameStarted
+      waitingForNextRound: this.gameStarted,
+      skills: { obscure: 0, replace: 0, steal: 0 },
+      pendingSkills: { obscure: 0, replace: 0, steal: 0 }
     });
     return true;
   }
@@ -118,6 +127,31 @@ class Room {
     }
   }
 
+  buySkill(playerId, skillId) {
+    if (this.mode !== 'special') return { error: '只有特殊模式可購買技能' };
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return { error: '找不到玩家' };
+    const config = SKILL_CONFIG[skillId];
+    if (!config) return { error: '無效的技能' };
+
+    const currentLevel = Math.max(player.skills[skillId], player.pendingSkills[skillId]);
+    if (currentLevel >= 3) return { error: '技能已達最高等級' };
+
+    const nextLevel = currentLevel + 1;
+    const cost = config.costs[nextLevel - 1];
+    if (player.money < cost) return { error: '餘額不足' };
+
+    player.money -= cost;
+    player.pendingSkills[skillId] = nextLevel;
+    
+    // Check elimination if money drops to 0 (though normally you wouldn't spend your last dime, but possible)
+    if (player.money <= 0) {
+      player.money = 0;
+      player.eliminated = true;
+    }
+    return { success: true, newLevel: nextLevel, cost, name: config.name };
+  }
+
   startGame() {
     if (this.players.length < 2) return false;
     this.gameStarted = true;
@@ -137,6 +171,12 @@ class Room {
   startNewRound() {
     for (const p of this.players) {
       p.waitingForNextRound = false;
+      // Merge pending skills into active skills
+      for (const key in p.pendingSkills) {
+        if (p.pendingSkills[key] > p.skills[key]) {
+          p.skills[key] = p.pendingSkills[key];
+        }
+      }
     }
 
     if (this.pendingSettlement) {
@@ -199,6 +239,92 @@ class Room {
     this.gateCards = [this.deck.draw(), this.deck.draw()];
     this.thirdCard = null;
     this.lastResult = null;
+    this.gateCard2Hidden = false;
+    this.activeSkills = [];
+
+    if (this.mode === 'special') {
+      const currentPlayer = this.getCurrentPlayer();
+      // Obscure: Opponents only
+      for (let idx of this.turnOrder) {
+        const p = this.players[idx];
+        if (p.id !== currentPlayer.id && p.skills.obscure > 0) {
+          const chance = SKILL_CONFIG.obscure.chances[p.skills.obscure - 1];
+          if (Math.random() < chance) {
+            this.gateCard2Hidden = true;
+            this.activeSkills.push({ playerId: p.id, playerName: p.name, skill: '門牌遮蔽' });
+            break;
+          }
+        }
+      }
+
+      // Replace: All players (Priority: Active Player -> Turn Order)
+      let replaceWinner = null;
+      for (let i = 0; i < this.turnOrder.length; i++) {
+        const actualIndex = (this.turnPosition + i) % this.turnOrder.length;
+        const p = this.players[this.turnOrder[actualIndex]];
+        if (p.skills.replace > 0) {
+          const chance = SKILL_CONFIG.replace.chances[p.skills.replace - 1];
+          if (Math.random() < chance) {
+            replaceWinner = p;
+            break; // Highest priority triggers first
+          }
+        }
+      }
+
+      if (replaceWinner) {
+        this.phase = 'skill-replace';
+        this.replacePlayerId = replaceWinner.id;
+        this.activeSkills.push({ playerId: replaceWinner.id, playerName: replaceWinner.name, skill: '門牌替換' });
+        
+        // Get available ranks from deck
+        const counts = {};
+        for (const c of this.deck.cards) counts[c.rank] = (counts[c.rank] || 0) + 1;
+        this.replaceOptions = Object.keys(counts);
+
+        // Auto-pick after 10s if no response
+        this.replaceTimeout = setTimeout(() => {
+          this.executeReplace(replaceWinner.id, null);
+        }, 10000);
+        if (this.onStateChange) this.onStateChange();
+        return;
+      }
+    }
+
+    this.checkGateCards();
+  }
+
+  executeReplace(playerId, selectedRank) {
+    if (this.phase !== 'skill-replace' || this.replacePlayerId !== playerId) return { error: '無效的操作' };
+    
+    clearTimeout(this.replaceTimeout);
+    this.replaceTimeout = null;
+
+    let validCards = [];
+    if (selectedRank) {
+      validCards = this.deck.cards.filter(c => c.rank === selectedRank);
+    }
+    
+    if (validCards.length === 0) {
+      // Fallback: Pick a random card from remaining deck
+      validCards = this.deck.cards;
+    }
+
+    if (validCards.length > 0) {
+      // Pick random suit of that rank (or random card entirely)
+      const ranIdx = Math.floor(Math.random() * validCards.length);
+      const chosenCard = validCards[ranIdx];
+      
+      // Remove chosen card from deck
+      const deckIdx = this.deck.cards.indexOf(chosenCard);
+      if (deckIdx !== -1) this.deck.cards.splice(deckIdx, 1);
+      
+      this.gateCards[1] = chosenCard;
+    }
+
+    this.checkGateCards();
+  }
+
+  checkGateCards() {
 
     const low = Math.min(this.gateCards[0].value, this.gateCards[1].value);
     const high = Math.max(this.gateCards[0].value, this.gateCards[1].value);
@@ -228,6 +354,49 @@ class Room {
       this.phase = 'choosing'; // player must choose higher or lower
     } else {
       this.phase = 'betting';
+    }
+
+    // Call an external trigger if needed (or simply depend on state broadcast)
+    if (this.onStateChange) this.onStateChange();
+  }
+
+  executeSteal(winnerId, originalWinAmount) {
+    if (this.mode !== 'special') return;
+    
+    const winner = this.players.find(p => p.id === winnerId);
+    if (!winner) return;
+
+    let stealCandidates = [];
+    for (let i = 0; i < this.turnOrder.length; i++) {
+        // Iterate starting from current player to respect turn order
+        const actualIndex = (this.turnPosition + i) % this.turnOrder.length;
+        const p = this.players[this.turnOrder[actualIndex]];
+        if (p.id !== winnerId && p.skills.steal > 0) {
+            const chance = SKILL_CONFIG.steal.chances[p.skills.steal - 1];
+            if (Math.random() < chance) {
+                stealCandidates.push(p);
+            }
+        }
+    }
+    
+    let remainingWin = originalWinAmount;
+    // Base 30% of original
+    const stealAmount = Math.floor(originalWinAmount * 0.3);
+    
+    for (const thief of stealCandidates) {
+        if (remainingWin <= 0) break;
+        const actualSteal = Math.min(stealAmount, remainingWin);
+        
+        winner.money -= actualSteal;
+        thief.money += actualSteal;
+        remainingWin -= actualSteal;
+        
+        this.activeSkills.push({
+            playerId: thief.id, 
+            playerName: thief.name, 
+            skill: '偷錢', 
+            message: `從 ${winner.name} 偷走了 $${actualSteal}` 
+        });
     }
   }
 
@@ -260,14 +429,17 @@ class Room {
       result = { type: 'hitPost', amount: loss, message: '撞柱！賠雙倍！' };
     } else if (val > low && val < high) {
       // Win
-      currentPlayer.money += amount;
-      this.pot -= amount;
-      result = { type: 'win', amount, message: '過關！贏得 ' + amount + ' 元！' };
+      const win = amount;
+      currentPlayer.money += win;
+      this.pot -= win;
+      this.executeSteal(currentPlayer.id, win);
+      result = { type: 'win', amount: win, message: '進洞！贏得獎金！' };
     } else {
       // Lose
-      currentPlayer.money -= amount;
-      this.pot += amount;
-      result = { type: 'lose', amount, message: '沒過！輸了 ' + amount + ' 元！' };
+      const loss = amount;
+      currentPlayer.money -= loss;
+      this.pot += loss;
+      result = { type: 'lose', amount: loss, message: '未進洞！賠掉底注！' };
     }
 
     if (currentPlayer.money <= 0) {
@@ -306,13 +478,17 @@ class Room {
       this.pot += loss;
       result = { type: 'tripleHit', amount: loss, message: '撞柱！賠三倍！' };
     } else if (guessCorrect) {
-      currentPlayer.money += amount;
-      this.pot -= amount;
-      result = { type: 'win', amount, message: '猜對了！贏得 ' + amount + ' 元！' };
+      const win = amount;
+      currentPlayer.money += win;
+      this.pot -= win;
+      this.executeSteal(currentPlayer.id, win);
+      result = { type: 'win', amount: win, message: '猜中！贏得獎金！' };
     } else {
-      currentPlayer.money -= amount;
-      this.pot += amount;
-      result = { type: 'lose', amount, message: '猜錯了！輸了 ' + amount + ' 元！' };
+      // Lose
+      const loss = amount;
+      currentPlayer.money -= loss;
+      this.pot += loss;
+      result = { type: 'lose', amount: loss, message: '猜錯！賠掉底注！' };
     }
 
     if (currentPlayer.money <= 0) {
@@ -379,7 +555,9 @@ class Room {
         eliminated: p.eliminated,
         connected: p.connected,
         isHost: p.id === this.hostId,
-        isCurrentPlayer: currentPlayer ? p.id === currentPlayer.id : false
+        isCurrentPlayer: currentPlayer ? p.id === currentPlayer.id : false,
+        skills: p.skills,
+        pendingSkills: p.pendingSkills
       })),
       currentPlayer: currentPlayer ? {
         id: currentPlayer.id,
@@ -393,7 +571,11 @@ class Room {
       maxBet: currentPlayer && currentPlayer.id === playerId
         ? Math.min(currentPlayer.money, this.pot)
         : 0,
-      gateCardsEqual: this.gateCards.length === 2 && this.gateCards[0].value === this.gateCards[1].value
+      gateCardsEqual: this.gateCards.length === 2 && this.gateCards[0].value === this.gateCards[1].value,
+      gateCard2Hidden: this.gateCard2Hidden || false,
+      activeSkills: this.activeSkills || [],
+      replaceOptions: this.replaceOptions || [],
+      replacePlayerId: this.replacePlayerId || null
     };
   }
 }

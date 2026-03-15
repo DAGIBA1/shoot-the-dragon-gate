@@ -8,6 +8,7 @@ const socket = io();
 let myId = null;
 let currentState = null;
 let selectedGuess = null;
+let lastSeenSkills = [];
 
 // ── DOM References ────────────────────────────────────────
 const lobbyView = document.getElementById('lobby-view');
@@ -37,12 +38,26 @@ const finalStandings = document.getElementById('final-standings');
 const btnRestart = document.getElementById('btn-restart');
 const btnBackLobby = document.getElementById('btn-back-lobby');
 const btnEarlySettle = document.getElementById('btn-early-settle');
+const btnSkillStore = document.getElementById('btn-skill-store');
+const skillStoreOverlay = document.getElementById('skill-store-overlay');
+const btnCloseStore = document.getElementById('btn-close-store');
+const storeBalance = document.getElementById('store-balance');
+const skillsList = document.getElementById('skills-list');
+const replaceSkillOverlay = document.getElementById('replace-skill-overlay');
+const replaceRankGrid = document.getElementById('replace-rank-grid');
 
 // ── Avatar Colors ─────────────────────────────────────────
 const AVATAR_COLORS = [
   '#fbbf24', '#34d399', '#60a5fa', '#f87171', '#a78bfa',
   '#fb923c', '#2dd4bf', '#818cf8', '#f472b6', '#facc15'
 ];
+
+// ── Skills Configuration ────────────────────────────────────
+const SKILL_CONFIG = {
+  obscure: { levels: [1, 2, 3], costs: [50, 100, 150], chances: [0.05, 0.075, 0.10], name: '門牌遮蔽', desc: '在對手回合時，有機率隱藏其第二張門牌' },
+  replace: { levels: [1, 2, 3], costs: [100, 150, 200], chances: [0.05, 0.075, 0.10], name: '門牌替換', desc: '在所有回合時，有機率替換第二張門牌' },
+  steal:   { levels: [1, 2, 3], costs: [100, 150, 200], chances: [0.05, 0.075, 0.10], name: '偷錢', desc: '在對手贏得獎池時，有機率偷取其 30% 獲利' }
+};
 
 // ── Lobby Events ──────────────────────────────────────────
 document.getElementById('btn-create').addEventListener('click', () => {
@@ -105,6 +120,15 @@ btnEarlySettle.addEventListener('click', () => {
   showToast('已申請提早結算，本輪結束後將進行結算');
 });
 
+btnSkillStore.addEventListener('click', () => {
+  skillStoreOverlay.classList.remove('hidden');
+  renderSkillStore();
+});
+
+btnCloseStore.addEventListener('click', () => {
+  skillStoreOverlay.classList.add('hidden');
+});
+
 // ── Socket Events ─────────────────────────────────────────
 socket.on('connect', () => {
   myId = socket.id;
@@ -125,11 +149,43 @@ socket.on('game-state', (state) => {
   } else {
     showGameView();
     renderGame(state);
+    
+    // Live update the store balance/skills if it's currently open
+    if (!skillStoreOverlay.classList.contains('hidden')) {
+      renderSkillStore();
+    }
+
+    // Show toast notifications for newly activated skills
+    if (state.activeSkills && state.activeSkills.length > 0) {
+      state.activeSkills.forEach(s => {
+        const hash = `${state.roundNumber}-${state.phase}-${s.playerId}-${s.skill}-${s.message || ''}`;
+        if (!lastSeenSkills.includes(hash)) {
+          lastSeenSkills.push(hash);
+          showToast(`⚡ ${s.playerName} 發動了【${s.skill}】${s.message ? ' : ' + s.message : ''}`);
+        }
+      });
+    } else if (state.phase === 'betting' || state.phase === 'choosing' || ['revealing', 'gameOver'].includes(state.phase)) {
+      // clear when skills array is empty
+      if (!state.activeSkills || state.activeSkills.length === 0) {
+          lastSeenSkills = [];
+      }
+    }
   }
 });
 
 socket.on('error-msg', (msg) => {
   showToast(msg, true);
+});
+
+socket.on('skill-bought', (data) => {
+  if (data.playerId === myId) {
+    showToast(`成功購買/升級【${data.name}】至 Lv.${data.newLevel}`);
+    if (!skillStoreOverlay.classList.contains('hidden')) {
+      renderSkillStore();
+    }
+  } else {
+    showToast(`【${data.playerName}】購買了技能【${data.name}】`);
+  }
 });
 
 // ── Lobby Rendering ───────────────────────────────────────
@@ -201,11 +257,17 @@ function showGameView() {
 }
 
 function renderGame(state) {
-  // Header
-  roundBadge.textContent = `第 ${state.roundNumber} 輪`;
+  // Update Header
+  document.getElementById('round-badge').textContent = `第 ${state.roundNumber} 輪`;
   document.getElementById('game-room-mode-badge').textContent = state.mode === 'special' ? '特殊模式' : '一般模式';
   document.getElementById('game-room-code-badge').textContent = `代碼: ${state.code}`;
   potAmount.textContent = state.pot;
+  
+  if (state.mode === 'special') {
+      btnSkillStore.classList.remove('hidden');
+  } else {
+      btnSkillStore.classList.add('hidden');
+  }
 
   const isHost = state.players.find(p => p.id === myId)?.isHost;
   if (isHost && !state.pendingSettlement) {
@@ -228,10 +290,15 @@ function renderGame(state) {
 
   // Actions / Status
   if (state.phase === 'gameOver') {
+    replaceSkillOverlay.classList.add('hidden');
     showGameOver(state);
+  } else if (state.phase === 'skill-replace') {
+    renderReplaceSkillPhase(state);
   } else if (state.phase === 'revealing' || state.phase === 'consecutive') {
+    replaceSkillOverlay.classList.add('hidden');
     renderReveal(state);
   } else if (state.isYourTurn) {
+    replaceSkillOverlay.classList.add('hidden');
     resultDisplay.classList.add('hidden');
     if (state.phase === 'choosing') {
       renderGuessControls(state);
@@ -240,6 +307,7 @@ function renderGame(state) {
     }
     statusMessage.textContent = '輪到你了！';
   } else {
+    replaceSkillOverlay.classList.add('hidden');
     actionSection.innerHTML = '';
     resultDisplay.classList.add('hidden');
     if (state.currentPlayer) {
@@ -272,7 +340,13 @@ function renderSidebar(state) {
 function renderCards(state) {
   if (state.gateCards.length >= 2) {
     gateCard1Slot.innerHTML = renderCardHTML(state.gateCards[0]);
-    gateCard2Slot.innerHTML = renderCardHTML(state.gateCards[1]);
+    
+    const shouldHide = state.gateCard2Hidden && state.isYourTurn && !['revealing', 'gameOver', 'consecutive'].includes(state.phase);
+    if (shouldHide || state.phase === 'skill-replace') {
+      gateCard2Slot.innerHTML = '<div class="card card-back card-hidden"><div class="card-back-pattern">?</div></div>';
+    } else {
+      gateCard2Slot.innerHTML = renderCardHTML(state.gateCards[1]);
+    }
   }
 
   if (state.thirdCard) {
@@ -432,12 +506,7 @@ function renderGuessControls(state) {
 function renderReveal(state) {
   actionSection.innerHTML = '';
   if (state.lastResult) {
-    resultDisplay.className = 'result-display ' + state.lastResult.type;
-    resultText.textContent = state.lastResult.message;
-    resultDisplay.classList.remove('hidden');
-    if (state.lastResult.eliminated) {
-      resultText.textContent += ' 玩家已淘汰！';
-    }
+    showResult(state.lastResult);
   }
   statusMessage.textContent = '下一位玩家準備中...';
 }
@@ -493,11 +562,116 @@ function showToast(msg, isError = false) {
   toast.className = 'toast' + (isError ? ' error' : '');
   toast.textContent = msg;
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// ── Skill System (Special Mode) ───────────────────────────
+function renderSkillStore() {
+  if (!currentState) return;
+  const me = currentState.players.find(p => p.id === myId);
+  if (!me) return;
+
+  storeBalance.textContent = `$${me.money}`;
+  skillsList.innerHTML = '';
+
+  for (const [skillId, config] of Object.entries(SKILL_CONFIG)) {
+    const activeLevel = me.skills ? me.skills[skillId] : 0;
+    const pendingLevel = me.pendingSkills ? me.pendingSkills[skillId] : 0;
+    const currentMax = Math.max(activeLevel, pendingLevel);
+
+    const isMax = currentMax >= 3;
+    const cost = isMax ? '-' : config.costs[currentMax];
+    const canAfford = !isMax && me.money >= cost;
+    const nextChance = isMax ? config.chances[2] : config.chances[currentMax];
+    const curChance = currentMax === 0 ? 0 : config.chances[currentMax - 1];
+
+    const div = document.createElement('div');
+    div.className = 'skill-card';
+    div.innerHTML = `
+      <div class="skill-info-wrap">
+        <div class="skill-name">${config.name} ${currentMax > 0 ? `<span class="skill-lvl-badge">Lv.${currentMax}</span>` : ''}</div>
+        <div class="skill-desc">${config.desc}</div>
+        <div class="skill-stats">觸發機率: ${(curChance * 100).toFixed(1)}% ${!isMax ? '→ 升級後: ' + (nextChance * 100).toFixed(1) + '%' : ''}</div>
+        ${pendingLevel > activeLevel ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">(Lv.${pendingLevel} 將於下回合生效)</div>` : ''}
+      </div>
+      <div class="skill-action-wrap">
+      <div class="skill-action-wrap">
+        ${isMax 
+          ? '<span style="color:var(--text-muted); font-size:0.9rem; font-weight:bold; margin-top:8px;">已滿等</span>' 
+          : `<button class="btn btn-primary btn-sm" onclick="btnBuySkill(this, '${skillId}')" ${!canAfford ? 'disabled' : ''} style="padding: 6px 16px;">
+              ${currentMax === 0 ? '購買' : '升級'} ($${cost})
+            </button>`
+        }
+      </div>
+    `;
+    skillsList.appendChild(div);
+  }
+}
+
+window.btnBuySkill = function(btn, skillId) {
+  btn.disabled = true; // prevent double clicks causing lag sensation
+  btn.textContent = '處理中...';
+  socket.emit('buy-skill', skillId);
+};
+
+// ── Replace Skill Phase ───────────────────────────────────
+function renderReplaceSkillPhase(state) {
+  replaceSkillOverlay.classList.remove('hidden');
+  const activeDiv = document.getElementById('replace-skill-active');
+  const waitingDiv = document.getElementById('replace-skill-waiting');
+  
+  if (state.replacePlayerId === myId) {
+    activeDiv.classList.remove('hidden');
+    waitingDiv.classList.add('hidden');
+    
+    // Show the first gate card
+    const gc1 = state.gateCards[0];
+    const isRed = gc1.suit === '♥' || gc1.suit === '♦';
+    const color = isRed ? 'var(--accent-red)' : 'var(--text-main)';
+    document.getElementById('replace-gate-card').innerHTML = `<span style="color:${color}">${gc1.suit} ${gc1.rank}</span>`;
+    
+    replaceRankGrid.innerHTML = '';
+    const allRanks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+    allRanks.forEach(rank => {
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (state.replaceOptions.includes(rank) ? 'btn-primary' : 'btn-secondary');
+      btn.textContent = rank;
+      btn.style.padding = '10px';
+      btn.style.fontSize = '1.2rem';
+      
+      if (!state.replaceOptions.includes(rank)) {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+      } else {
+        btn.onclick = () => {
+          socket.emit('execute-replace', rank);
+          replaceSkillOverlay.classList.add('hidden');
+        };
+      }
+      replaceRankGrid.appendChild(btn);
+    });
+  } else {
+    activeDiv.classList.add('hidden');
+    waitingDiv.classList.remove('hidden');
+    const rpPlayer = state.players.find(p => p.id === state.replacePlayerId);
+    document.getElementById('replace-waiting-name').textContent = rpPlayer ? rpPlayer.name : '某玩家';
+  }
 }
 
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function showResult(lastResult) {
+  resultDisplay.className = 'result-display ' + lastResult.type;
+  resultText.textContent = lastResult.message;
+  resultDisplay.classList.remove('hidden');
+  if (lastResult.eliminated) {
+    resultText.textContent += ' 玩家已淘汰！';
+  }
 }

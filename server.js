@@ -20,6 +20,7 @@ io.on('connection', (socket) => {
     // If client is still passing object, handle it backward compatibly
     const name = typeof playerName === 'string' ? playerName : playerName?.playerName;
     const room = createRoom(socket.id, name);
+    room.onStateChange = () => broadcastState(room);
     socket.join(room.code);
     socketRooms.set(socket.id, room.code);
     socket.emit('room-created', room.code);
@@ -98,6 +99,31 @@ io.on('connection', (socket) => {
         broadcastState(room);
       }
     }, 3000);
+  });
+
+  // ── Special Mode Skills ─────────────────────────────────
+  socket.on('buy-skill', (skillId) => {
+    const room = getRoomForSocket(socket);
+    if (!room) return;
+    const result = room.buySkill(socket.id, skillId);
+    if (result.error) return socket.emit('error-msg', result.error);
+    // Notify all players (could be a toast)
+    io.to(room.code).emit('skill-bought', { 
+      playerId: socket.id, 
+      playerName: room.players.find(p => p.id === socket.id)?.name,
+      skillId, 
+      newLevel: result.newLevel, 
+      name: result.name 
+    });
+    broadcastState(room);
+  });
+
+  socket.on('execute-replace', (rank) => {
+    const room = getRoomForSocket(socket);
+    if (!room) return;
+    const result = room.executeReplace(socket.id, rank); // rank can be null for auto-pick
+    if (result && result.error) return socket.emit('error-msg', result.error);
+    broadcastState(room);
   });
 
   // ── Restart Game ────────────────────────────────────────

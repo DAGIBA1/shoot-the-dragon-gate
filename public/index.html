@@ -102,6 +102,7 @@
         <span class="round-badge" style="margin-left: 8px;" id="game-room-mode-badge">一般模式</span>
         <span class="round-badge" style="margin-left: 8px;" id="game-room-code-badge">代碼: ----</span>
         <button id="btn-early-settle" class="btn btn-secondary btn-sm hidden" style="padding: 4px 10px; font-size: 0.8rem; margin-left: 8px;">💳 提早結算</button>
+        <button id="btn-skill-store" class="btn btn-secondary btn-sm hidden" style="padding: 4px 10px; font-size: 0.8rem; margin-left: 8px;">✨ 技能</button>
       </div>
       <div class="header-right">
         <div class="pot-display">
@@ -150,6 +151,38 @@
         <div class="status-message" id="status-message"></div>
       </section>
     </main>
+
+    <!-- Skill Store Overlay -->
+    <div class="overlay hidden" id="skill-store-overlay">
+      <div class="glass-panel overlay-content" style="max-width: 450px; width: 95%; padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 style="font-size: 1.5rem;">✨ 技能商店</h2>
+          <button id="btn-close-store" class="btn btn-secondary" style="padding: 4px 12px;">✕</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">目前餘額: <span id="store-balance" style="color: var(--accent-gold); font-weight: bold;">$0</span></p>
+        <div id="skills-list" style="display: flex; flex-direction: column; gap: 16px;">
+          <!-- JS will populate skills here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Replace Skill Modal -->
+    <div class="overlay hidden" id="replace-skill-overlay">
+      <div class="glass-panel overlay-content" style="max-width: 500px; width: 95%;">
+        <h2>🃏 門牌替換發動</h2>
+        <div id="replace-skill-active" class="hidden">
+          <div style="margin-bottom: 15px; font-size: 1.1rem; text-align: center;">第一張門牌是：<span id="replace-gate-card" style="font-weight:bold; background:rgba(255,255,255,0.05); padding:4px 12px; border-radius:4px; margin-left: 8px;"></span></div>
+          <p style="color: var(--text-muted); margin-bottom: 20px; text-align: center;">請選擇欲替換的第二張點數。若該點數已無剩餘卡牌則無法選擇。</p>
+          <div id="replace-rank-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px;">
+            <!-- Rank buttons injected here -->
+          </div>
+        </div>
+        <div id="replace-skill-waiting" class="hidden" style="text-align: center; padding: 20px 0;">
+          <div class="spinner" style="margin: 0 auto 15px;"></div>
+          <p style="color: var(--accent-gold); font-size: 1.1rem;">等待 <span id="replace-waiting-name">某玩家</span> 選擇替換卡牌...</p>
+        </div>
+      </div>
+    </div>
 
     <!-- Game Over Overlay -->
     <div class="overlay hidden" id="game-over-overlay">

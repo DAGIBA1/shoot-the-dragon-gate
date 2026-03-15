@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: shoot-the-dragon-gate
+    env: node
+    plan: free
+    region: singapore # You can change this to your preferred region (e.g. oregon, frankfurt)
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 3000
