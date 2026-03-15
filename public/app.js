@@ -45,6 +45,10 @@ const storeBalance = document.getElementById('store-balance');
 const skillsList = document.getElementById('skills-list');
 const replaceSkillOverlay = document.getElementById('replace-skill-overlay');
 const replaceRankGrid = document.getElementById('replace-rank-grid');
+const historyOverlay = document.getElementById('history-overlay');
+const matchHistoryList = document.getElementById('match-history-list');
+const skillHistorySection = document.getElementById('skill-history-section');
+const skillHistoryList = document.getElementById('skill-history-list');
 
 // ── Avatar Colors ─────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -155,6 +159,11 @@ socket.on('game-state', (state) => {
       renderSkillStore();
     }
 
+    // Live update history panel if open
+    if (!historyOverlay.classList.contains('hidden')) {
+      renderHistoryPanel();
+    }
+
     // Show toast notifications for newly activated skills
     if (state.activeSkills && state.activeSkills.length > 0) {
       state.activeSkills.forEach(s => {
@@ -188,6 +197,20 @@ socket.on('skill-bought', (data) => {
   }
 });
 
+socket.on('kicked-from-room', () => {
+  alert('您已被房主踢出房間');
+  location.reload();
+});
+
+document.getElementById('btn-history').addEventListener('click', () => {
+  historyOverlay.classList.remove('hidden');
+  renderHistoryPanel();
+});
+
+document.getElementById('btn-close-history').addEventListener('click', () => {
+  historyOverlay.classList.add('hidden');
+});
+
 // ── Lobby Rendering ───────────────────────────────────────
 function showRoomPanel(code) {
   panelMainMenu.classList.add('hidden');
@@ -198,13 +221,15 @@ function showRoomPanel(code) {
 
 function renderLobbyPlayers(state) {
   lobbyPlayerList.innerHTML = '';
+  const meIsHost = state.players.find(p => p.id === myId)?.isHost;
   state.players.forEach((p, i) => {
     const div = document.createElement('div');
     div.className = 'player-item';
     div.innerHTML = `
       <div class="player-avatar" style="background:${AVATAR_COLORS[i % AVATAR_COLORS.length]}">${p.name[0]}</div>
-      <span class="player-name">${escapeHtml(p.name)}</span>
+      <span class="player-name" style="flex:1;">${escapeHtml(p.name)}</span>
       ${p.isHost ? '<span class="player-badge">房主</span>' : ''}
+      ${meIsHost && !p.isHost ? `<button class="btn btn-secondary btn-sm" onclick="kickPlayer('${p.id}')" style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">踢除</button>` : ''}
     `;
     lobbyPlayerList.appendChild(div);
   });
@@ -319,6 +344,7 @@ function renderGame(state) {
 // ── Sidebar ───────────────────────────────────────────────
 function renderSidebar(state) {
   playerSidebar.innerHTML = '';
+  const meIsHost = state.players.find(p => p.id === myId)?.isHost;
   state.players.forEach((p, i) => {
     const div = document.createElement('div');
     div.className = 'sidebar-player' +
@@ -327,14 +353,21 @@ function renderSidebar(state) {
     div.innerHTML = `
       ${p.isCurrentPlayer ? '<div class="turn-indicator"></div>' : ''}
       <div class="player-avatar" style="background:${AVATAR_COLORS[i % AVATAR_COLORS.length]}">${p.name[0]}</div>
-      <div class="player-info">
+      <div class="player-info" style="flex:1;">
         <div class="player-name">${escapeHtml(p.name)}${p.id === myId ? ' (你)' : ''}${p.isHost ? ' 👑' : ''}</div>
         <div class="player-money${p.money === 0 ? ' zero' : ''}">$${p.money}${p.eliminated ? ' ☠️' : ''}${p.waitingForNextRound ? ' <span style="color:#f39c12; font-size:0.85em; margin-left: 4px;">⌛ 等待中</span>' : ''}</div>
       </div>
+      ${meIsHost && !p.isHost && !p.eliminated ? `<button class="btn btn-secondary btn-sm" onclick="kickPlayer('${p.id}')" style="padding:2px 6px; font-size:0.75rem; margin-left:4px;">踢除</button>` : ''}
     `;
     playerSidebar.appendChild(div);
   });
 }
+
+window.kickPlayer = function(id) {
+  if (confirm('確定要踢出該玩家嗎？')) {
+    socket.emit('kick-player', id);
+  }
+};
 
 // ── Cards ─────────────────────────────────────────────────
 function renderCards(state) {
@@ -627,11 +660,12 @@ function renderReplaceSkillPhase(state) {
     activeDiv.classList.remove('hidden');
     waitingDiv.classList.add('hidden');
     
-    // Show the first gate card
+    // Show the first gate card and target player
     const gc1 = state.gateCards[0];
     const isRed = gc1.suit === '♥' || gc1.suit === '♦';
     const color = isRed ? 'var(--accent-red)' : 'var(--text-main)';
     document.getElementById('replace-gate-card').innerHTML = `<span style="color:${color}">${gc1.suit} ${gc1.rank}</span>`;
+    document.getElementById('replace-target-player').textContent = state.currentPlayer ? state.currentPlayer.name : '未知';
     
     replaceRankGrid.innerHTML = '';
     const allRanks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
@@ -658,6 +692,54 @@ function renderReplaceSkillPhase(state) {
     waitingDiv.classList.remove('hidden');
     const rpPlayer = state.players.find(p => p.id === state.replacePlayerId);
     document.getElementById('replace-waiting-name').textContent = rpPlayer ? rpPlayer.name : '某玩家';
+  }
+}
+
+// ── History Panel ─────────────────────────────────────
+function renderHistoryPanel() {
+  if (!currentState) return;
+  const state = currentState;
+
+  // Match History
+  matchHistoryList.innerHTML = '';
+  if (!state.matchHistory || state.matchHistory.length === 0) {
+    matchHistoryList.innerHTML = '<li style="color: var(--text-muted);">尚無紀錄...</li>';
+  } else {
+    [...state.matchHistory].reverse().forEach(h => {
+      const li = document.createElement('li');
+      li.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;';
+      li.innerHTML = `
+        <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between;">
+          <span>[R${h.round}] ${h.time}</span><span>獎池: $${h.pot}</span>
+        </div>
+        <div style="font-size:0.95rem; margin-top:3px;">
+          <b>${escapeHtml(h.name)}</b> ${escapeHtml(h.resultText)}
+        </div>`;
+      matchHistoryList.appendChild(li);
+    });
+  }
+
+  // Skill History
+  if (state.mode === 'special') {
+    skillHistorySection.classList.remove('hidden');
+    skillHistoryList.innerHTML = '';
+    if (!state.skillHistory || state.skillHistory.length === 0) {
+      skillHistoryList.innerHTML = '<li style="color: var(--text-muted);">尚無紀錄...</li>';
+    } else {
+      [...state.skillHistory].reverse().forEach(h => {
+        const li = document.createElement('li');
+        li.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;';
+        li.innerHTML = `
+          <div style="font-size:0.8rem; color:var(--text-muted);">[R${h.round}] ${h.time}</div>
+          <div style="font-size:0.95rem; margin-top:3px;">
+            <b style="color:var(--accent-gold);">${escapeHtml(h.name)}</b> 發動了 <b>【${h.skillName}】</b>
+            <div style="color:var(--text-muted); font-size:0.85rem; margin-top:2px;">${escapeHtml(h.message)}</div>
+          </div>`;
+        skillHistoryList.appendChild(li);
+      });
+    }
+  } else {
+    skillHistorySection.classList.add('hidden');
   }
 }
 

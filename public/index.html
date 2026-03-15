@@ -104,7 +104,8 @@
         <button id="btn-early-settle" class="btn btn-secondary btn-sm hidden" style="padding: 4px 10px; font-size: 0.8rem; margin-left: 8px;">💳 提早結算</button>
         <button id="btn-skill-store" class="btn btn-secondary btn-sm hidden" style="padding: 4px 10px; font-size: 0.8rem; margin-left: 8px;">✨ 技能</button>
       </div>
-      <div class="header-right">
+      <div class="header-right" style="display:flex; align-items:center; gap:10px;">
+        <button id="btn-history" class="btn btn-secondary btn-sm" style="padding:4px 10px; font-size:0.8rem;">📜 紀錄</button>
         <div class="pot-display">
           <span class="pot-label">獎池</span>
           <span class="pot-amount" id="pot-amount">0</span>
@@ -171,6 +172,7 @@
       <div class="glass-panel overlay-content" style="max-width: 500px; width: 95%;">
         <h2>🃏 門牌替換發動</h2>
         <div id="replace-skill-active" class="hidden">
+          <div style="margin-bottom: 5px; font-size: 1.1rem; text-align: center;">目標玩家：<span id="replace-target-player" style="font-weight:bold; color:var(--accent-gold);">某玩家</span></div>
           <div style="margin-bottom: 15px; font-size: 1.1rem; text-align: center;">第一張門牌是：<span id="replace-gate-card" style="font-weight:bold; background:rgba(255,255,255,0.05); padding:4px 12px; border-radius:4px; margin-left: 8px;"></span></div>
           <p style="color: var(--text-muted); margin-bottom: 20px; text-align: center;">請選擇欲替換的第二張點數。若該點數已無剩餘卡牌則無法選擇。</p>
           <div id="replace-rank-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px;">
@@ -180,6 +182,30 @@
         <div id="replace-skill-waiting" class="hidden" style="text-align: center; padding: 20px 0;">
           <div class="spinner" style="margin: 0 auto 15px;"></div>
           <p style="color: var(--accent-gold); font-size: 1.1rem;">等待 <span id="replace-waiting-name">某玩家</span> 選擇替換卡牌...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Overlay -->
+    <div class="overlay hidden" id="history-overlay">
+      <div class="glass-panel overlay-content" style="max-width: 600px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h2 style="font-size: 1.5rem;">📜 遊戲紀錄</h2>
+          <button id="btn-close-history" class="btn btn-secondary" style="padding: 4px 12px;">✕</button>
+        </div>
+        <div style="flex: 1; overflow-y: auto; text-align: left; padding-right: 10px;">
+          <div style="margin-bottom: 25px;">
+            <h4 style="color: var(--accent-gold); margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">🏆 對戰紀錄 (最近 10 次)</h4>
+            <ul id="match-history-list" style="list-style: none; padding: 0; margin: 0; display:flex; flex-direction:column; gap:6px;">
+              <li style="color: var(--text-muted);">尚無紀錄...</li>
+            </ul>
+          </div>
+          <div id="skill-history-section">
+            <h4 style="color: var(--accent-emerald); margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px;">⚡ 技能紀錄 (最近 10 次)</h4>
+            <ul id="skill-history-list" style="list-style: none; padding: 0; margin: 0; display:flex; flex-direction:column; gap:6px;">
+              <li style="color: var(--text-muted);">尚無紀錄...</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

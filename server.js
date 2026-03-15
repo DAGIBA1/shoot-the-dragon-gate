@@ -126,6 +126,24 @@ io.on('connection', (socket) => {
     broadcastState(room);
   });
 
+  // ── Kick Player (host only) ─────────────────────────────
+  socket.on('kick-player', (targetId) => {
+    const room = getRoomForSocket(socket);
+    if (!room) return;
+    if (room.hostId !== socket.id) return socket.emit('error-msg', '只有房主可以踢人');
+    if (targetId === socket.id) return socket.emit('error-msg', '不能踢出自己');
+    const targetPlayer = room.players.find(p => p.id === targetId);
+    if (!targetPlayer) return socket.emit('error-msg', '找不到該玩家');
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) {
+      targetSocket.emit('kicked-from-room');
+      targetSocket.leave(room.code);
+      socketRooms.delete(targetId);
+    }
+    room.removePlayer(targetId);
+    broadcastState(room);
+  });
+
   // ── Restart Game ────────────────────────────────────────
   socket.on('restart-game', () => {
     const room = getRoomForSocket(socket);

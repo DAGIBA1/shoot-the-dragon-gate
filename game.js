@@ -72,6 +72,18 @@ class Room {
     this.pendingSettlement = false;
     this.turnOrder = []; // active player indices for current round
     this.turnPosition = 0; // position within turnOrder
+    this.matchHistory = [];  // last 10 match results
+    this.skillHistory = [];  // last 10 skill activations
+  }
+
+  addMatchHistory(playerName, resultText, amount) {
+    this.matchHistory.push({ round: this.roundNumber, name: playerName, resultText, amount, pot: this.pot, time: new Date().toLocaleTimeString() });
+    if (this.matchHistory.length > 10) this.matchHistory.shift();
+  }
+
+  addSkillHistory(playerName, skillName, message) {
+    this.skillHistory.push({ round: this.roundNumber, name: playerName, skillName, message, time: new Date().toLocaleTimeString() });
+    if (this.skillHistory.length > 10) this.skillHistory.shift();
   }
 
   updateSettings(entryFee, startingMoney, mode) {
@@ -252,6 +264,7 @@ class Room {
           if (Math.random() < chance) {
             this.gateCard2Hidden = true;
             this.activeSkills.push({ playerId: p.id, playerName: p.name, skill: '門牌遮蔽' });
+            this.addSkillHistory(p.name, '門牌遮蔽', '隱藏了對手的第二張門牌');
             break;
           }
         }
@@ -275,6 +288,7 @@ class Room {
         this.phase = 'skill-replace';
         this.replacePlayerId = replaceWinner.id;
         this.activeSkills.push({ playerId: replaceWinner.id, playerName: replaceWinner.name, skill: '門牌替換' });
+        this.addSkillHistory(replaceWinner.name, '門牌替換', '準備換掉第二張門牌');
         
         // Get available ranks from deck
         const counts = {};
@@ -345,6 +359,7 @@ class Room {
         message: `連號（${low} 和 ${high}）！自動賠 ${loss} 元！`,
         eliminated: cp.eliminated || false
       };
+      this.addMatchHistory(cp.name, this.lastResult.message, loss);
       this.phase = 'consecutive';
       return;
     }
@@ -397,6 +412,7 @@ class Room {
             skill: '偷錢', 
             message: `從 ${winner.name} 偷走了 $${actualSteal}` 
         });
+        this.addSkillHistory(thief.name, '偷錢', `從 ${winner.name} 偷走了 $${actualSteal}`);
     }
   }
 
@@ -449,6 +465,7 @@ class Room {
     }
 
     this.lastResult = result;
+    this.addMatchHistory(currentPlayer.name, result.message, result.amount);
     this.phase = 'revealing';
     return { success: true, result };
   }
@@ -498,6 +515,7 @@ class Room {
     }
 
     this.lastResult = result;
+    this.addMatchHistory(currentPlayer.name, result.message, result.amount);
     this.phase = 'revealing';
     return { success: true, result };
   }
@@ -575,7 +593,9 @@ class Room {
       gateCard2Hidden: this.gateCard2Hidden || false,
       activeSkills: this.activeSkills || [],
       replaceOptions: this.replaceOptions || [],
-      replacePlayerId: this.replacePlayerId || null
+      replacePlayerId: this.replacePlayerId || null,
+      matchHistory: this.matchHistory || [],
+      skillHistory: this.skillHistory || []
     };
   }
 }
