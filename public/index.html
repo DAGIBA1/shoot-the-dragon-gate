@@ -117,6 +117,12 @@
       <!-- Player Sidebar -->
       <aside class="player-sidebar" id="player-sidebar"></aside>
 
+      <!-- Skill History Log (visible on main screen in special mode) -->
+      <div id="skill-log-panel" class="hidden" style="position:absolute; bottom:10px; left:10px; width:280px; max-height:240px; overflow-y:auto; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px; font-size:0.82rem; z-index:10;">
+        <div style="color:var(--accent-emerald); font-weight:bold; margin-bottom:8px; font-size:0.85rem;">⚡ 技能紀錄</div>
+        <ul id="skill-log-list" style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:5px;"></ul>
+      </div>
+
       <!-- Game Area -->
       <section class="game-area">
         <!-- Cards Section -->
@@ -206,6 +212,18 @@
               <li style="color: var(--text-muted);">尚無紀錄...</li>
             </ul>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kick Confirm Overlay -->
+    <div class="overlay hidden" id="kick-confirm-overlay" style="z-index: 2000;">
+      <div class="glass-panel overlay-content" style="max-width: 400px; padding: 24px;">
+        <h2 style="font-size: 1.4rem; color: var(--accent-red); margin-bottom: 15px;">⚠️ 踢出玩家</h2>
+        <p style="margin-bottom: 25px; color: var(--text-main);">確定要踢出玩家「<span id="kick-confirm-name" style="font-weight:bold; color:var(--accent-gold);"></span>」嗎？</p>
+        <div style="display: flex; gap: 15px; justify-content: center;">
+          <button id="btn-kick-cancel" class="btn btn-secondary" style="flex:1;">取消</button>
+          <button id="btn-kick-confirm" class="btn btn-primary" style="flex:1; background: var(--accent-red);">確定踢除</button>
         </div>
       </div>
     </div>

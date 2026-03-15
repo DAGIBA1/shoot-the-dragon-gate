@@ -76,8 +76,17 @@ class Room {
     this.skillHistory = [];  // last 10 skill activations
   }
 
-  addMatchHistory(playerName, resultText, amount) {
-    this.matchHistory.push({ round: this.roundNumber, name: playerName, resultText, amount, pot: this.pot, time: new Date().toLocaleTimeString() });
+  addMatchHistory(playerName, resultText, amount, moneyBefore, moneyAfter) {
+    this.matchHistory.push({ 
+      round: this.roundNumber, 
+      name: playerName, 
+      resultText, 
+      amount,
+      moneyBefore,
+      moneyAfter,
+      pot: this.pot, 
+      time: new Date().toLocaleTimeString() 
+    });
     if (this.matchHistory.length > 10) this.matchHistory.shift();
   }
 
@@ -111,9 +120,65 @@ class Room {
   }
 
   removePlayer(id) {
-    this.players = this.players.filter(p => p.id !== id);
+    const playerIndex = this.players.findIndex(p => p.id === id);
+    if (playerIndex === -1) return;
+
+    // Get current active player ID before removal (if game is running)
+    let activePlayerId = null;
+    if (this.gameStarted && this.turnOrder.length > 0) {
+      activePlayerId = this.players[this.turnOrder[this.turnPosition]]?.id;
+    }
+
+    // Completely remove the player from the room
+    this.players.splice(playerIndex, 1);
+
+    // Reassign host if needed
     if (this.hostId === id && this.players.length > 0) {
       this.hostId = this.players[0].id;
+    }
+
+    if (this.gameStarted) {
+      // Rebuild turn order from the remaining players
+      this.turnOrder = [];
+      const total = this.players.length;
+      for (let i = 0; i < total; i++) {
+        const idx = (this.roundStartIndex + i) % total;
+        const p = this.players[idx];
+        if (!p.eliminated && p.connected) {
+          this.turnOrder.push(idx);
+        }
+      }
+
+      // If everyone active was kicked/eliminated, end the game
+      if (this.turnOrder.length <= 1) {
+        this.phase = 'gameOver';
+        return;
+      }
+
+      // Restore turnPosition to point to the active player (or next available)
+      if (activePlayerId) {
+        if (activePlayerId === id) {
+          // The kicked player was the active player. It shifts automatically to the new player at this.turnPosition.
+          // Just make sure turnPosition doesn't go out of bounds.
+          if (this.turnPosition >= this.turnOrder.length) {
+            this.turnPosition = 0;
+            this.startNewRound();
+          } else {
+             // Restart phase for the new active player
+             this.phase = 'betting';
+             this.dealGateCards(); 
+          }
+        } else {
+          // Find where the previously active player is now in the new turnOrder
+          const newPos = this.turnOrder.findIndex(idx => this.players[idx].id === activePlayerId);
+          if (newPos !== -1) {
+            this.turnPosition = newPos;
+          } else {
+            // Fallback (shouldn't happen unless they were also eliminated)
+            this.turnPosition = 0;
+          }
+        }
+      }
     }
   }
 
@@ -339,6 +404,8 @@ class Room {
   }
 
   checkGateCards() {
+    const cp = this.getCurrentPlayer();
+    const moneyBefore = cp.money;
 
     const low = Math.min(this.gateCards[0].value, this.gateCards[1].value);
     const high = Math.max(this.gateCards[0].value, this.gateCards[1].value);
@@ -359,7 +426,7 @@ class Room {
         message: `連號（${low} 和 ${high}）！自動賠 ${loss} 元！`,
         eliminated: cp.eliminated || false
       };
-      this.addMatchHistory(cp.name, this.lastResult.message, loss);
+      this.addMatchHistory(cp.name, this.lastResult.message, loss, moneyBefore, cp.money);
       this.phase = 'consecutive';
       return;
     }
@@ -431,6 +498,8 @@ class Room {
     if (amount > currentPlayer.money) return { error: '下注金額不可超過持有金額' };
     if (amount > this.pot) return { error: '下注金額不可超過獎池金額' };
 
+    const moneyBefore = currentPlayer.money;
+
     this.thirdCard = this.deck.draw();
     const low = Math.min(this.gateCards[0].value, this.gateCards[1].value);
     const high = Math.max(this.gateCards[0].value, this.gateCards[1].value);
@@ -465,7 +534,7 @@ class Room {
     }
 
     this.lastResult = result;
-    this.addMatchHistory(currentPlayer.name, result.message, result.amount);
+    this.addMatchHistory(currentPlayer.name, result.message, result.amount, moneyBefore, currentPlayer.money);
     this.phase = 'revealing';
     return { success: true, result };
   }
@@ -479,6 +548,8 @@ class Room {
     if (amount < this.entryFee) return { error: `最低下注金額為 ${this.entryFee} 元` };
     if (amount > currentPlayer.money) return { error: '下注金額不可超過持有金額' };
     if (amount > this.pot) return { error: '下注金額不可超過獎池金額' };
+
+    const moneyBefore = currentPlayer.money;
 
     this.thirdCard = this.deck.draw();
     const gateValue = this.gateCards[0].value;
@@ -515,7 +586,7 @@ class Room {
     }
 
     this.lastResult = result;
-    this.addMatchHistory(currentPlayer.name, result.message, result.amount);
+    this.addMatchHistory(currentPlayer.name, result.message, result.amount, moneyBefore, currentPlayer.money);
     this.phase = 'revealing';
     return { success: true, result };
   }

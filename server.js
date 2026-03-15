@@ -11,6 +11,7 @@ app.use(express.static('public'));
 
 // Track socket → room mapping
 const socketRooms = new Map(); // socketId → roomCode
+const kickedPlayers = new Set(); // socketId
 
 io.on('connection', (socket) => {
   console.log(`[連線] ${socket.id}`);
@@ -128,19 +129,26 @@ io.on('connection', (socket) => {
 
   // ── Kick Player (host only) ─────────────────────────────
   socket.on('kick-player', (targetId) => {
+    console.log(`[踢人] ${socket.id} 嘗試踢除 ${targetId}`);
     const room = getRoomForSocket(socket);
-    if (!room) return;
+    if (!room) { console.log('[踢人] 找不到房間'); return; }
     if (room.hostId !== socket.id) return socket.emit('error-msg', '只有房主可以踢人');
     if (targetId === socket.id) return socket.emit('error-msg', '不能踢出自己');
     const targetPlayer = room.players.find(p => p.id === targetId);
-    if (!targetPlayer) return socket.emit('error-msg', '找不到該玩家');
+    if (!targetPlayer) { console.log('[踢人] 找不到目標玩家'); return socket.emit('error-msg', '找不到該玩家'); }
+
+    // Mark as kicked so disconnect handler won't re-process
+    kickedPlayers.add(targetId);
+
+    // Notify target BEFORE removing
     const targetSocket = io.sockets.sockets.get(targetId);
     if (targetSocket) {
       targetSocket.emit('kicked-from-room');
       targetSocket.leave(room.code);
-      socketRooms.delete(targetId);
     }
+    socketRooms.delete(targetId);
     room.removePlayer(targetId);
+    console.log(`[踢人] 成功踢除 ${targetId}, 剩餘玩家: ${room.players.length}`);
     broadcastState(room);
   });
 
@@ -156,6 +164,12 @@ io.on('connection', (socket) => {
   // ── Disconnect ──────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`[斷線] ${socket.id}`);
+    
+    if (kickedPlayers.has(socket.id)) {
+      kickedPlayers.delete(socket.id);
+      return; // Skip normal disconnect processing for kicked players
+    }
+
     const code = socketRooms.get(socket.id);
     if (!code) return;
     const room = getRoom(code);

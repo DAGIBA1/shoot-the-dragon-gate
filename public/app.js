@@ -49,6 +49,14 @@ const historyOverlay = document.getElementById('history-overlay');
 const matchHistoryList = document.getElementById('match-history-list');
 const skillHistorySection = document.getElementById('skill-history-section');
 const skillHistoryList = document.getElementById('skill-history-list');
+const skillLogPanel = document.getElementById('skill-log-panel');
+const skillLogList = document.getElementById('skill-log-list');
+
+const kickConfirmOverlay = document.getElementById('kick-confirm-overlay');
+const kickConfirmName = document.getElementById('kick-confirm-name');
+const btnKickConfirm = document.getElementById('btn-kick-confirm');
+const btnKickCancel = document.getElementById('btn-kick-cancel');
+let pendingKickId = null;
 
 // ── Avatar Colors ─────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -197,9 +205,11 @@ socket.on('skill-bought', (data) => {
   }
 });
 
+// Replace native alert with custom UI or console log if alert is blocked
+// But for now, we just leave it for the kicked player
 socket.on('kicked-from-room', () => {
-  alert('您已被房主踢出房間');
-  location.reload();
+  // If native alert is blocked, we can just write to body
+  document.body.innerHTML = '<div style="display:flex; height:100vh; align-items:center; justify-content:center; background:#0f172a; color:white; font-size:2rem; flex-direction:column;">您已被房主踢出房間<br><br><button onclick="location.reload()" style="padding:10px 20px; font-size:1.2rem; cursor:pointer;">重新整理</button></div>';
 });
 
 document.getElementById('btn-history').addEventListener('click', () => {
@@ -229,7 +239,7 @@ function renderLobbyPlayers(state) {
       <div class="player-avatar" style="background:${AVATAR_COLORS[i % AVATAR_COLORS.length]}">${p.name[0]}</div>
       <span class="player-name" style="flex:1;">${escapeHtml(p.name)}</span>
       ${p.isHost ? '<span class="player-badge">房主</span>' : ''}
-      ${meIsHost && !p.isHost ? `<button class="btn btn-secondary btn-sm" onclick="kickPlayer('${p.id}')" style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">踢除</button>` : ''}
+      ${meIsHost && !p.isHost ? '<button class="btn btn-secondary btn-sm kick-btn" data-kick-id="' + p.id + '" data-kick-name="' + escapeHtml(p.name) + '" style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">踢除</button>' : ''}
     `;
     lobbyPlayerList.appendChild(div);
   });
@@ -310,6 +320,9 @@ function renderGame(state) {
   // Sidebar
   renderSidebar(state);
 
+  // On-screen skill log (special mode only)
+  renderSkillLog(state);
+
   // Cards
   renderCards(state);
 
@@ -357,17 +370,44 @@ function renderSidebar(state) {
         <div class="player-name">${escapeHtml(p.name)}${p.id === myId ? ' (你)' : ''}${p.isHost ? ' 👑' : ''}</div>
         <div class="player-money${p.money === 0 ? ' zero' : ''}">$${p.money}${p.eliminated ? ' ☠️' : ''}${p.waitingForNextRound ? ' <span style="color:#f39c12; font-size:0.85em; margin-left: 4px;">⌛ 等待中</span>' : ''}</div>
       </div>
-      ${meIsHost && !p.isHost && !p.eliminated ? `<button class="btn btn-secondary btn-sm" onclick="kickPlayer('${p.id}')" style="padding:2px 6px; font-size:0.75rem; margin-left:4px;">踢除</button>` : ''}
+      ${meIsHost && !p.isHost && !p.eliminated ? '<button class="btn btn-secondary btn-sm kick-btn" data-kick-id="' + p.id + '" data-kick-name="' + escapeHtml(p.name) + '" style="padding:2px 6px; font-size:0.75rem; margin-left:4px;">踢除</button>' : ''}
     `;
     playerSidebar.appendChild(div);
   });
 }
 
-window.kickPlayer = function(id) {
-  if (confirm('確定要踢出該玩家嗎？')) {
-    socket.emit('kick-player', id);
+// ── Event Delegation for Kick Buttons ─────────────────────────
+function handleKickClick(e) {
+  const btn = e.target.closest('.kick-btn');
+  if (btn) {
+    e.stopPropagation(); // Prevent other handlers
+    const targetId = btn.getAttribute('data-kick-id');
+    const targetName = btn.getAttribute('data-kick-name') || '某玩家';
+    console.log(`[Frontend] Kick button clicked for ${targetName} (${targetId})`);
+    
+    // Show custom confirm modal
+    pendingKickId = targetId;
+    kickConfirmName.textContent = targetName;
+    kickConfirmOverlay.classList.remove('hidden');
   }
-};
+}
+
+btnKickConfirm.addEventListener('click', () => {
+  if (pendingKickId) {
+    console.log(`[Frontend] Emitting kick-player for ${pendingKickId}`);
+    socket.emit('kick-player', pendingKickId);
+    pendingKickId = null;
+    kickConfirmOverlay.classList.add('hidden');
+  }
+});
+
+btnKickCancel.addEventListener('click', () => {
+  pendingKickId = null;
+  kickConfirmOverlay.classList.add('hidden');
+});
+
+lobbyPlayerList.addEventListener('click', handleKickClick);
+playerSidebar.addEventListener('click', handleKickClick);
 
 // ── Cards ─────────────────────────────────────────────────
 function renderCards(state) {
@@ -695,6 +735,22 @@ function renderReplaceSkillPhase(state) {
   }
 }
 
+// ── On-screen Skill Log ─────────────────────────────────
+function renderSkillLog(state) {
+  if (state.mode !== 'special' || !state.skillHistory || state.skillHistory.length === 0) {
+    skillLogPanel.classList.add('hidden');
+    return;
+  }
+  skillLogPanel.classList.remove('hidden');
+  skillLogList.innerHTML = '';
+  [...state.skillHistory].reverse().forEach(h => {
+    const li = document.createElement('li');
+    li.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:4px;';
+    li.innerHTML = `<span style="color:var(--text-muted); font-size:0.75rem;">[R${h.round}]</span> <b style="color:var(--accent-gold);">${escapeHtml(h.name)}</b> 發動 <b>【${h.skillName}】</b><div style="color:var(--text-muted); font-size:0.75rem;">${escapeHtml(h.message)}</div>`;
+    skillLogList.appendChild(li);
+  });
+}
+
 // ── History Panel ─────────────────────────────────────
 function renderHistoryPanel() {
   if (!currentState) return;
@@ -712,8 +768,11 @@ function renderHistoryPanel() {
         <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between;">
           <span>[R${h.round}] ${h.time}</span><span>獎池: $${h.pot}</span>
         </div>
-        <div style="font-size:0.95rem; margin-top:3px;">
-          <b>${escapeHtml(h.name)}</b> ${escapeHtml(h.resultText)}
+        <div style="font-size:0.95rem; margin-top:3px; display:flex; justify-content:space-between; align-items:center;">
+          <div><b>${escapeHtml(h.name)}</b> ${escapeHtml(h.resultText)}</div>
+          <div style="font-size:0.85rem; color:var(--text-muted); background:var(--bg-glass); padding:2px 6px; border-radius:4px;">
+            $${h.moneyBefore ?? '?'} <span style="font-size:0.7rem;">➔</span> <span style="color:${(h.moneyAfter > h.moneyBefore) ? 'var(--accent-emerald)' : ((h.moneyAfter < h.moneyBefore) ? 'var(--accent-red)' : 'var(--text-main)')}; font-weight:bold;">$${h.moneyAfter ?? '?'}</span>
+          </div>
         </div>`;
       matchHistoryList.appendChild(li);
     });
