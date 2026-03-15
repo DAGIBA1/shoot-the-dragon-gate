@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="射龍門 - 線上多人撲克牌遊戲，最多10人同樂！">
+  <title>🐉 射龍門 — 線上多人遊戲</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ═══════════════ Lobby View ═══════════════ -->
+  <div id="lobby-view" class="view active">
+    <div class="lobby-container">
+      <div class="logo-section">
+        <div class="dragon-icon">🐉</div>
+        <h1>射龍門</h1>
+        <p class="subtitle">Shoot the Dragon Gate</p>
+      </div>
+
+      <div class="glass-panel" id="panel-main-menu">
+        <div class="input-group">
+          <label for="player-name">你的暱稱</label>
+          <input type="text" id="player-name" placeholder="輸入暱稱..." maxlength="12">
+        </div>
+        <div class="btn-group">
+          <button id="btn-create" class="btn btn-primary">
+            <span class="btn-icon">✦</span> 建立房間
+          </button>
+          <button id="btn-show-join" class="btn btn-secondary">
+            <span class="btn-icon">→</span> 加入房間
+          </button>
+        </div>
+      </div>
+
+      <div class="glass-panel hidden" id="panel-join">
+        <div class="input-group">
+          <label for="room-code-input">房間代碼</label>
+          <input type="text" id="room-code-input" placeholder="輸入 4 位代碼..." maxlength="4" style="text-transform:uppercase; letter-spacing:0.3em; text-align:center; font-size:1.4rem;">
+        </div>
+        <div class="btn-group">
+          <button id="btn-join" class="btn btn-primary">
+            <span class="btn-icon">→</span> 加入
+          </button>
+          <button id="btn-back" class="btn btn-ghost">返回</button>
+        </div>
+      </div>
+
+      <div class="glass-panel hidden" id="panel-room">
+        <div class="room-header">
+          <span class="room-label">房間代碼</span>
+          <span class="room-code" id="display-room-code">----</span>
+        </div>
+        <div class="player-list" id="lobby-player-list"></div>
+        
+        <!-- Host Settings View -->
+        <div id="host-settings" class="hidden">
+          <div class="settings-row" style="margin-top: 1rem;">
+            <div class="input-group input-group-third">
+              <label for="setting-entry-fee">💰 參加費</label>
+              <input type="number" id="setting-entry-fee" value="10" min="1" max="100">
+            </div>
+            <div class="input-group input-group-half">
+              <label for="setting-starting-money">🎮 起始金額</label>
+              <input type="number" id="setting-starting-money" value="500" min="10" max="10000">
+            </div>
+            <div class="input-group input-group-half">
+              <label for="setting-game-mode">🎲 遊戲模式</label>
+              <select id="setting-game-mode">
+                <option value="normal">一般模式</option>
+                <option value="special">特殊模式</option>
+              </select>
+            </div>
+          </div>
+          <button id="btn-save-settings" class="btn btn-secondary btn-full" style="margin-top: 0.5rem; margin-bottom: 1rem;">
+            <span class="btn-icon">💾</span> 儲存設定
+          </button>
+        </div>
+
+        <!-- Guest View / Display Info -->
+        <div class="room-info" id="room-info-display">
+          <span>💰 參加費 <strong id="display-entry-fee">10</strong> 元</span>
+          <span>🎮 起始 <strong id="display-starting-money">500</strong> 元</span>
+          <span>🎲 模式 <strong id="display-room-mode">一般模式</strong></span>
+        </div>
+        <button id="btn-start" class="btn btn-primary btn-full hidden">
+          <span class="btn-icon">⚡</span> 開始遊戲
+        </button>
+        <p class="waiting-text" id="waiting-text">等待房主開始遊戲...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ Game View ═══════════════ -->
+  <div id="game-view" class="view">
+    <header class="game-header">
+      <div class="header-left">
+        <span class="game-title">🐉 射龍門</span>
+        <span class="round-badge" id="round-badge">第 1 輪</span>
+        <span class="round-badge" style="margin-left: 8px;" id="game-room-mode-badge">一般模式</span>
+        <span class="round-badge" style="margin-left: 8px;" id="game-room-code-badge">代碼: ----</span>
+        <button id="btn-early-settle" class="btn btn-secondary btn-sm hidden" style="padding: 4px 10px; font-size: 0.8rem; margin-left: 8px;">💳 提早結算</button>
+      </div>
+      <div class="header-right">
+        <div class="pot-display">
+          <span class="pot-label">獎池</span>
+          <span class="pot-amount" id="pot-amount">0</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="game-main">
+      <!-- Player Sidebar -->
+      <aside class="player-sidebar" id="player-sidebar"></aside>
+
+      <!-- Game Area -->
+      <section class="game-area">
+        <!-- Cards Section -->
+        <div class="cards-section">
+          <div class="card-slot" id="gate-card-1">
+            <div class="card card-back"><div class="card-back-pattern">🐉</div></div>
+          </div>
+          <div class="gate-indicator">
+            <div class="gate-arrow">⇋</div>
+            <div class="gate-label">門</div>
+          </div>
+          <div class="card-slot" id="gate-card-2">
+            <div class="card card-back"><div class="card-back-pattern">🐉</div></div>
+          </div>
+          <div class="third-card-area">
+            <div class="card-slot" id="third-card-slot">
+              <div class="card card-back card-hidden"><div class="card-back-pattern">?</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Section -->
+        <div class="action-section" id="action-section">
+          <!-- Betting UI (injected dynamically) -->
+        </div>
+
+        <!-- Result Display -->
+        <div class="result-display hidden" id="result-display">
+          <div class="result-text" id="result-text"></div>
+        </div>
+
+        <!-- Status Messages -->
+        <div class="status-message" id="status-message"></div>
+      </section>
+    </main>
+
+    <!-- Game Over Overlay -->
+    <div class="overlay hidden" id="game-over-overlay">
+      <div class="glass-panel overlay-content">
+        <div class="trophy-icon">🏆</div>
+        <h2 id="winner-text">遊戲結束</h2>
+        <div id="pot-remaining" style="text-align:center; margin: 12px 0; padding: 10px 20px; border-radius: 100px; background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.15); display:inline-block;">
+          <span style="font-size: 0.85rem; color: var(--accent-emerald); font-weight: 500;">獎池剩餘</span>
+          <span id="pot-remaining-amount" style="font-size: 1.3rem; font-weight: 900; color: var(--accent-emerald); margin-left: 8px;">$0</span>
+        </div>
+        <div id="final-standings"></div>
+        <button id="btn-restart" class="btn btn-primary btn-full hidden">
+          <span class="btn-icon">🔄</span> 再來一局
+        </button>
+        <button id="btn-back-lobby" class="btn btn-secondary btn-full">
+          <span class="btn-icon">←</span> 返回大廳
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
