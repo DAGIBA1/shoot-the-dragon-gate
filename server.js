@@ -11,7 +11,14 @@ app.use(express.static('public'));
 
 // Track socket → room mapping
 const socketRooms = new Map(); // socketId → roomCode
-const kickedPlayers = new Set(); // socketId
+const kickedPlayers = new Map(); // socketId → timestamp
+
+// Sanitize player name: trim, limit to 12 chars, reject empty
+function sanitizeName(name) {
+  if (typeof name !== 'string') return null;
+  const trimmed = name.trim().substring(0, 12);
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 io.on('connection', (socket) => {
   console.log(`[連線] ${socket.id}`);
@@ -19,7 +26,9 @@ io.on('connection', (socket) => {
   // ── Create Room ─────────────────────────────────────
   socket.on('create-room', (playerName) => {
     // If client is still passing object, handle it backward compatibly
-    const name = typeof playerName === 'string' ? playerName : playerName?.playerName;
+    const rawName = typeof playerName === 'string' ? playerName : playerName?.playerName;
+    const name = sanitizeName(rawName);
+    if (!name) return socket.emit('error-msg', '請輸入有效的暱稱（1-12 字）');
     const room = createRoom(socket.id, name);
     room.onStateChange = () => broadcastState(room);
     socket.join(room.code);
@@ -50,9 +59,11 @@ io.on('connection', (socket) => {
 
   // ── Join Room ───────────────────────────────────────────
   socket.on('join-room', ({ code, playerName }) => {
+    const name = sanitizeName(playerName);
+    if (!name) return socket.emit('error-msg', '請輸入有效的暱稱（1-12 字）');
     const room = getRoom(code);
     if (!room) return socket.emit('error-msg', '房間不存在');
-    if (!room.addPlayer(socket.id, playerName)) {
+    if (!room.addPlayer(socket.id, name)) {
       return socket.emit('error-msg', '房間已滿（上限 10 人）');
     }
     socket.join(code);
@@ -138,7 +149,7 @@ io.on('connection', (socket) => {
     if (!targetPlayer) { console.log('[踢人] 找不到目標玩家'); return socket.emit('error-msg', '找不到該玩家'); }
 
     // Mark as kicked so disconnect handler won't re-process
-    kickedPlayers.add(targetId);
+    kickedPlayers.set(targetId, Date.now());
 
     // Notify target BEFORE removing
     const targetSocket = io.sockets.sockets.get(targetId);
@@ -230,3 +241,30 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🐉 射龍門伺服器啟動於 http://localhost:${PORT}`);
 });
+
+// ── Idle Room & kickedPlayers Cleanup (every 5 min) ──────────
+setInterval(() => {
+  const now = Date.now();
+  // Clean up rooms: delete if no players or gameOver for 30+ min
+  for (const [code, room] of rooms) {
+    const allDisconnected = room.players.every(p => !p.connected);
+    const isGameOver = room.phase === 'gameOver';
+    if (room.players.length === 0 || allDisconnected) {
+      console.log(`[Cleanup] 刪除空房間 ${code}`);
+      deleteRoom(code);
+    } else if (isGameOver) {
+      if (!room._gameOverTime) {
+        room._gameOverTime = now;
+      } else if (now - room._gameOverTime > 30 * 60 * 1000) {
+        console.log(`[Cleanup] 刪除過期房間 ${code}`);
+        deleteRoom(code);
+      }
+    }
+  }
+  // Clean up stale kickedPlayers entries (older than 60s)
+  for (const [id, timestamp] of kickedPlayers) {
+    if (now - timestamp > 60000) {
+      kickedPlayers.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);

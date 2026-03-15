@@ -2,6 +2,9 @@
 // 射龍門 — Client Application
 // ============================================================
 
+(function() {
+'use strict';
+
 const socket = io();
 
 // ── State ─────────────────────────────────────────────────
@@ -674,7 +677,7 @@ function renderSkillStore() {
       <div class="skill-action-wrap">
         ${isMax 
           ? '<span style="color:var(--text-muted); font-size:0.9rem; font-weight:bold; margin-top:8px;">已滿等</span>' 
-          : `<button class="btn btn-primary btn-sm" onclick="btnBuySkill(this, '${skillId}')" ${!canAfford ? 'disabled' : ''} style="padding: 6px 16px;">
+          : `<button class="btn btn-primary btn-sm btn-buy-skill" data-skill-id="${skillId}" ${!canAfford ? 'disabled' : ''} style="padding: 6px 16px;">
               ${currentMax === 0 ? '購買' : '升級'} ($${cost})
             </button>`
         }
@@ -684,11 +687,16 @@ function renderSkillStore() {
   }
 }
 
-window.btnBuySkill = function(btn, skillId) {
-  btn.disabled = true; // prevent double clicks causing lag sensation
+// Event delegation for skill buy buttons
+skillsList.addEventListener('click', function(e) {
+  const btn = e.target.closest('.btn-buy-skill');
+  if (!btn) return;
+  const skillId = btn.getAttribute('data-skill-id');
+  if (!skillId) return;
+  btn.disabled = true;
   btn.textContent = '處理中...';
   socket.emit('buy-skill', skillId);
-};
+});
 
 // ── Replace Skill Phase ───────────────────────────────────
 function renderReplaceSkillPhase(state) {
@@ -816,3 +824,5 @@ function showResult(lastResult) {
     resultText.textContent += ' 玩家已淘汰！';
   }
 }
+
+})();

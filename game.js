@@ -45,6 +45,9 @@ class Deck {
   }
 
   draw() {
+    if (this.cards.length === 0) {
+      this.reset();
+    }
     return this.cards.pop();
   }
 }
@@ -99,7 +102,7 @@ class Room {
     if (this.gameStarted) return false;
     if (entryFee && Number.isInteger(entryFee) && entryFee > 0) this.entryFee = entryFee;
     if (startingMoney && Number.isInteger(startingMoney) && startingMoney > 0) this.startingMoney = startingMoney;
-    if (mode) this.mode = mode;
+    if (mode && (mode === 'normal' || mode === 'special')) this.mode = mode;
     return true;
   }
 
@@ -467,7 +470,8 @@ class Room {
     
     for (const thief of stealCandidates) {
         if (remainingWin <= 0) break;
-        const actualSteal = Math.min(stealAmount, remainingWin);
+        const actualSteal = Math.min(stealAmount, remainingWin, winner.money);
+        if (actualSteal <= 0) break;
         
         winner.money -= actualSteal;
         thief.money += actualSteal;
@@ -491,6 +495,8 @@ class Room {
 
   // Place a bet (normal mode: gate cards are different)
   placeBet(playerId, amount) {
+    amount = Math.floor(Number(amount));
+    if (!Number.isFinite(amount) || amount <= 0) return { error: '無效的下注金額' };
     const currentPlayer = this.getCurrentPlayer();
     if (!currentPlayer || currentPlayer.id !== playerId) return { error: '不是你的回合' };
     if (this.phase !== 'betting') return { error: '目前不是下注階段' };
@@ -507,8 +513,8 @@ class Room {
 
     let result;
     if (val === this.gateCards[0].value || val === this.gateCards[1].value) {
-      // Hit the post → pay double
-      const loss = amount * 2;
+      // Hit the post → pay double (capped at player's balance)
+      const loss = Math.min(amount * 2, currentPlayer.money);
       currentPlayer.money -= loss;
       this.pot += loss;
       result = { type: 'hitPost', amount: loss, message: '撞柱！賠雙倍！' };
@@ -542,6 +548,9 @@ class Room {
   // Place a guess (equal gate cards mode)
   placeGuess(playerId, guess, amount) {
     // guess: 'higher' or 'lower'
+    if (guess !== 'higher' && guess !== 'lower') return { error: '無效的猜測' };
+    amount = Math.floor(Number(amount));
+    if (!Number.isFinite(amount) || amount <= 0) return { error: '無效的下注金額' };
     const currentPlayer = this.getCurrentPlayer();
     if (!currentPlayer || currentPlayer.id !== playerId) return { error: '不是你的回合' };
     if (this.phase !== 'choosing') return { error: '目前不是猜牌階段' };
@@ -560,8 +569,8 @@ class Room {
                          (guess === 'lower' && val < gateValue);
 
     if (val === gateValue) {
-      // Triple penalty
-      const loss = amount * 3;
+      // Triple penalty (capped at player's balance)
+      const loss = Math.min(amount * 3, currentPlayer.money);
       currentPlayer.money -= loss;
       this.pot += loss;
       result = { type: 'tripleHit', amount: loss, message: '撞柱！賠三倍！' };
@@ -698,6 +707,11 @@ function getRoom(code) {
 }
 
 function deleteRoom(code) {
+  const room = rooms.get(code);
+  if (room && room.replaceTimeout) {
+    clearTimeout(room.replaceTimeout);
+    room.replaceTimeout = null;
+  }
   rooms.delete(code);
 }
 
